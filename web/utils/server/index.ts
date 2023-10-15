@@ -2,6 +2,7 @@ import { Message } from '@/types/chat';
 import { OpenAIModel } from '@/types/openai';
 
 import {
+  API_HOST,
   AZURE_DEPLOYMENT_ID,
   OPENAI_API_HOST,
   OPENAI_API_TYPE,
@@ -14,7 +15,6 @@ import {
   ReconnectInterval,
   createParser,
 } from 'eventsource-parser';
-import OpenAI from 'openai';
 
 export class OpenAIError extends Error {
   type: string;
@@ -30,34 +30,6 @@ export class OpenAIError extends Error {
   }
 }
 
-const functions = [
-  {
-    name: 'get_current_weather',
-    description: 'Get the current weather in a given location',
-    parameters: {
-      type: 'object',
-      properties: {
-        location: {
-          type: 'string',
-          description: 'The city and state, e.g. San Francisco, CA',
-        },
-        unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
-      },
-      required: ['location'],
-    },
-  },
-];
-
-function getCurrentWeather(location: string, unit = 'fahrenheit') {
-  const weatherInfo = {
-    location,
-    temperature: '72',
-    unit: unit,
-    forecast: ['sunny', 'windy'],
-  };
-  return JSON.stringify(weatherInfo);
-}
-
 export const OpenAIChat = async (
   model: OpenAIModel,
   systemPrompt: string,
@@ -65,53 +37,27 @@ export const OpenAIChat = async (
   key: string,
   messages: Message[],
 ) => {
-  const openai = new OpenAI({
-    apiKey: key || process.env.OPENAI_API_KEY,
+  const url = `${API_HOST}/chat`;
+  const res = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+    body: JSON.stringify({
+      key,
+      model: model.id,
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
+        ...messages,
+      ],
+      max_tokens: 1000,
+      temperature: temperature,
+    }),
   });
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: [
-      {
-        role: 'system',
-        content: 'you are a weather bot',
-      },
-      ...messages,
-    ],
-    functions: functions,
-    function_call: 'auto', // auto is default, but we'll be explicit
-  });
-
-  const responseMessage: any = response.choices[0].message;
-
-  if (responseMessage.function_call) {
-    // Step 3: call the function
-    // Note: the JSON response may not always be valid; be sure to handle errors
-    const availableFunctions: any = {
-      get_current_weather: getCurrentWeather,
-    }; // only one function in this example, but you can have multiple
-    const functionName = responseMessage.function_call.name;
-    const functionToCall = availableFunctions[functionName];
-    const functionArgs = JSON.parse(responseMessage.function_call.arguments);
-    const functionResponse = functionToCall(
-      functionArgs.location,
-      functionArgs.unit,
-    );
-
-    // Step 4: send the info on the function call and function response to GPT
-    messages.push(responseMessage); // extend conversation with assistant's reply
-    messages.push({
-      role: 'function',
-      name: functionName,
-      content: functionResponse,
-    }); // extend conversation with function response
-    const secondResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: messages,
-    }); // get a new response from GPT where it can see the function response
-    return secondResponse.choices[0].message.content;
-  }
-  return responseMessage.content;
+  return res.text();
 };
 
 export const OpenAIStream = async (

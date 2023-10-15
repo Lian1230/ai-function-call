@@ -53,14 +53,15 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     encoding.free();
-
-    return OpenAIChat(
+    const answer = await OpenAIChat(
       model,
       promptToSend,
       temperatureToUse,
       key,
       messagesToSend,
     );
+
+    return new Response(answer);
 
     // return new Response(stream);
   } catch (error) {
